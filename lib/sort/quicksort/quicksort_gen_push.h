@@ -1,0 +1,15 @@
+
+#pragma push_macro("QUICKSORT_GEN_TYPE_1")
+#pragma push_macro("QUICKSORT_GEN_TYPE_2")
+#pragma push_macro("QUICKSORT_GEN_TYPE_3")
+#pragma push_macro("QUICKSORT_GEN_SUFFIX")
+#pragma push_macro("QUICKSORT_GEN_FUNCTION_ATTRIBUTES")
+#pragma push_macro("QUICKSORT_GEN_EXPAND")
+#pragma push_macro("QUICKSORT_GEN_EXPAND_TYPE")
+#pragma push_macro("_TYPE_V")
+#pragma push_macro("_TYPE_I")
+#pragma push_macro("_TYPE_AD")
+#pragma push_macro("quicksort")
+#pragma push_macro("quicksort_parallel")
+#pragma push_macro("quicksort_parallel_inplace")
+#include "quicksort_gen_undef.h"

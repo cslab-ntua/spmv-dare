@@ -39,3 +39,14 @@
 
 # debug information files
 *.dwo
+
+####################################
+
+# Repo related files
+
+# sparse matrices
+validation_matrices/*.mtx
+
+# out logs
+*.out
+*.csv

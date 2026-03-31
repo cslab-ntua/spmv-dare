@@ -1,0 +1,15 @@
+
+#pragma push_macro("CSR_GEN_TYPE_1")
+#pragma push_macro("CSR_GEN_TYPE_2")
+#pragma push_macro("CSR_GEN_SUFFIX")
+#pragma push_macro("CSR_GEN_FUNCTION_ATTRIBUTES")
+#pragma push_macro("CSR_GEN_EXPAND")
+#pragma push_macro("CSR_GEN_EXPAND_TYPE")
+#pragma push_macro("_TYPE_V")
+#pragma push_macro("_TYPE_I")
+#pragma push_macro("csr_sort_columns")
+#pragma push_macro("coo_to_csr")
+#pragma push_macro("csr_save_to_mtx")
+#pragma push_macro("csr_expand_symmetric")
+#pragma push_macro("csr_drop_upper")
+#include "csr_gen_undef.h"

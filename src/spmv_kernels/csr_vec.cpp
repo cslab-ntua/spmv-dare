@@ -1,0 +1,276 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <omp.h>
+
+#include "macros/cpp_defines.h"
+
+#include "spmv_kernel.h"
+
+#ifdef __cplusplus
+extern "C"{
+#endif
+	#include "macros/macrolib.h"
+	#include "time_it.h"
+	#include "time_it_tsc.h"
+	#include "parallel_util.h"
+
+	// #define VEC_FORCE
+
+	// #define VEC_X86_512
+	// #define VEC_X86_256
+	// #define VEC_X86_128
+	// #define VEC_ARM_SVE
+
+	#if DOUBLE == 0
+		#define VTI   i32
+		#define VTF   f32
+		#define VTM   m32
+		#define VEC_SCALE_SHIFT  2
+		// #define VEC_LEN  1
+		#if defined(RAVE_EMULATION) && RAVE_EMULATION == 1
+			#define VEC_LEN  512
+		#else
+			#define VEC_LEN  vec_len_default_f32
+		#endif
+		// #define VEC_LEN  vec_len_default_f64
+		// #define VEC_LEN  4
+		// #define VEC_LEN  8
+		// #define VEC_LEN  16
+		// #define VEC_LEN  32
+	#elif DOUBLE == 1
+		#define VTI   i64
+		#define VTF   f64
+		#define VTM   m64
+		#define VEC_SCALE_SHIFT  3
+		#if defined(RAVE_EMULATION) && RAVE_EMULATION == 1
+			#define VEC_LEN  256 // this should be selected when compiling for RAVE emulation
+		#else
+			#define VEC_LEN  vec_len_default_f64 // this should be selected when compiling for Banana Pi
+		#endif
+	#endif
+
+	#include "vectorization/vectorization_gen.h"
+#ifdef __cplusplus
+}
+#endif
+
+
+struct thread_data {
+	long i_s;
+	long i_e;
+
+	long j_s;
+	long j_e;
+
+	// ValueType v_s;
+	ValueType v_e;
+};
+
+static struct thread_data ** tds;
+
+
+extern int prefetch_distance;
+
+
+struct CSR : Matrix_Format
+{
+	INT_T * row_ptr;      // the usual rowptr (of size m+1)
+	INT_T * ja;      // the colidx of each NNZ (of size nnz)
+	ValueType * a;   // the values (of size NNZ)
+
+	CSR(INT_T * row_ptr_in, INT_T * col_ind, ValueTypeReference * values, long m, long n, long nnz) : Matrix_Format(m, n, nnz)
+	{
+		int num_threads = omp_get_max_threads();
+		double time_balance;
+
+		printf("VEC_LEN = %d\n", VEC_LEN);
+
+		row_ptr = (typeof(row_ptr)) aligned_alloc(64, (m+1) * sizeof(*row_ptr));
+		ja = (typeof(ja)) aligned_alloc(64, nnz * sizeof(*ja));
+		a = (typeof(a)) aligned_alloc(64, nnz * sizeof(*a));
+		#pragma omp parallel for
+		for (long i=0;i<m+1;i++)
+			row_ptr[i] = row_ptr_in[i];
+		#pragma omp parallel for
+		for(long i=0;i<nnz;i++)
+		{
+			a[i]=values[i];
+			ja[i]=col_ind[i];
+		}
+
+		tds = (typeof(tds)) aligned_alloc(64, num_threads * sizeof(*tds));
+
+		time_balance = time_it(1,
+			_Pragma("omp parallel")
+			{
+				int tnum = omp_get_thread_num();
+				struct thread_data * td;
+				int use_processes = atoi(getenv("USE_PROCESSES"));
+				td = (typeof(td)) aligned_alloc(64, sizeof(*td));
+				tds[tnum] = td;
+				if (use_processes)
+				{
+					loop_partitioner_balance_iterations(num_threads, tnum, 0, m, &td->i_s, &td->i_e);
+				}
+				else
+				{
+					#ifdef CUSTOM_X86_VECTOR_PERFECT_NNZ_BALANCE
+						long lower_boundary;
+						loop_partitioner_balance_iterations(num_threads, tnum, 0, nnz, &td->j_s, &td->j_e);
+						macros_binary_search(row_ptr, 0, m, td->j_s, &lower_boundary, NULL);           // Index boundaries are inclusive.
+						td->i_s = lower_boundary;
+						_Pragma("omp barrier")
+						if (tnum == num_threads - 1)   // If we calculate each thread's boundaries individually some empty rows might be unassigned.
+							td->i_e = m;
+						else
+							td->i_e = td->i_s + 1;
+					#else
+						loop_partitioner_balance_prefix_sums(num_threads, tnum, row_ptr, m, nnz, &td->i_s, &td->i_e);
+						// loop_partitioner_balance(num_threads, tnum, 2, row_ptr, m, nnz, &td->i_s, &td->i_e);
+					#endif
+				}
+			}
+		);
+		printf("balance time = %g\n", time_balance);
+	}
+
+	~CSR()
+	{
+		free(a);
+		free(row_ptr);
+		free(ja);
+		free(tds);
+	}
+
+	void spmv(ValueType * x, ValueType * y);
+	void statistics_start();
+	int statistics_print_data(__attribute__((unused)) char * buf, __attribute__((unused)) long buf_n);
+};
+
+
+void compute_csr_vector(CSR * restrict csr, ValueType * restrict x , ValueType * restrict y);
+
+
+void
+CSR::spmv(ValueType * x, ValueType * y)
+{
+	compute_csr_vector(this, x, y);
+}
+
+
+struct Matrix_Format *
+csr_to_format(INT_T * row_ptr, INT_T * col_ind, ValueTypeReference * values, long m, long n, long nnz, long symmetric, long symmetry_expanded)
+{
+	if (symmetric && !symmetry_expanded)
+		error("symmetric matrices have to be expanded to be supported by this format");
+	struct CSR * csr = new CSR(row_ptr, col_ind, values, m, n, nnz);
+	// for (long i=0;i<10;i++)
+		// printf("%d\n", row_ptr[i]);
+	csr->mem_footprint = nnz * (sizeof(ValueType) + sizeof(INT_T)) + (m+1) * sizeof(INT_T);
+	csr->format_name = (char *) "Custom_CSR_VEC";
+	return csr;
+}
+
+
+//==========================================================================================================================================
+//= CSR
+//==========================================================================================================================================
+
+
+__attribute__((hot,pure))
+static inline
+double
+subkernel_row_csr_vec(INT_T * restrict ja, ValueType * restrict a, ValueType * restrict x, long j_s, long j_e)
+{
+	long j, j_e_vector;
+	const long mask = ~(((long) VEC_LEN) - 1); // Minimum number of elements for the vectorized code (power of 2).
+	vec_t(VTF, VEC_LEN) v_a, v_x, v_sum;
+	ValueType sum = 0;
+	v_sum = vec_set1(VTF, VEC_LEN, 0);
+	sum = 0;
+	j_e_vector = j_s + ((j_e - j_s) & mask);
+	for (j=j_s;j<j_e_vector;j+=VEC_LEN)
+	{
+		v_a = vec_loadu(VTF, VEC_LEN, &a[j]);
+		v_x = vec_set_iter(VTF, VEC_LEN, iter, x[ja[j+iter]]);
+		v_sum = vec_fmadd(VTF, VEC_LEN, v_a, v_x, v_sum);
+	}
+	// if (j_e_vector < j_e)
+	// {
+		// v_m = vec_mask_firstN(m64, VEC_LEN, j_e - j_e_vector);
+		// v_a = vec_maskz_loadu(VTF, VEC_LEN, &a[j], v_m);
+		// v_x = vec_set1(VTF, VEC_LEN, 0);
+		// for (i=0;i<j_e-j_e_vector;i++)
+			// vec_array(VTF, VEC_LEN, v_x)[i] = x[ja[j+i]];
+		// v_sum = vec_fmadd(VTF, VEC_LEN, v_a, v_x, v_sum);
+	// }
+	sum = vec_reduce_add(VTF, VEC_LEN, v_sum);
+	for (j=j_e_vector;j<j_e;j++)
+		sum += a[j] * x[ja[j]];
+	return sum;
+}
+
+
+void
+subkernel_csr_vec(INT_T * restrict row_ptr, INT_T * restrict ja, ValueType * restrict a, ValueType * restrict x, ValueType * restrict y, long i_s, long i_e)
+{
+	long i, j_s, j_e;
+	j_e = row_ptr[i_s];
+	for (i=i_s;i<i_e;i++)
+	{
+		y[i] = 0;
+		j_s = j_e;
+		j_e = row_ptr[i+1];
+		if (j_s == j_e)
+			continue;
+		y[i] = subkernel_row_csr_vec(ja, a, x, j_s, j_e);
+	}
+}
+
+void
+compute_csr_vector(CSR * restrict csr, ValueType * restrict x, ValueType * restrict y)
+{
+	#pragma omp parallel
+	{
+		int tnum = omp_get_thread_num();
+		struct thread_data * td = tds[tnum];
+		long i_s, i_e;
+		i_s = td->i_s;
+		i_e = td->i_e;
+		// subkernel_csr_scalar(csr->row_ptr, csr->ja, csr->a, x, y, i_s, i_e);
+		subkernel_csr_vec(csr->row_ptr, csr->ja, csr->a, x, y, i_s, i_e);
+	}
+}
+
+//==========================================================================================================================================
+//= Print Statistics
+//==========================================================================================================================================
+
+
+void
+CSR::statistics_start()
+{
+}
+
+
+int
+statistics_print_labels(__attribute__((unused)) char * buf, __attribute__((unused)) long buf_n)
+{
+	return 0;
+}
+
+
+int
+CSR::statistics_print_data(__attribute__((unused)) char * buf, __attribute__((unused)) long buf_n)
+{
+	// int num_threads = omp_get_max_threads();
+	// long i, i_s, i_e;
+	// for (i=0;i<num_threads;i++)
+	// {
+		// i_s = tds[i]->i_s;
+		// i_e = tds[i]->i_e;
+		// printf("%3ld: i=[%8ld, %8ld] (%8ld) , nnz=%8d\n", i, i_s, i_e, i_e - i_s, row_ptr[i_e] - row_ptr[i_s]);
+	// }
+	return 0;
+}
+

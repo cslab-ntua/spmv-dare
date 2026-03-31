@@ -1,0 +1,157 @@
+.PHONY: all clean
+
+SHELL := bash
+.SHELLFLAGS := -eu -o pipefail -c
+.ONESHELL:
+.DELETE_ON_ERROR:
+MAKEFLAGS += --warn-undefined-variables
+MAKECMDGOALS ?=
+
+# Targets that don't generate dependency files.
+NODEPS = clean
+
+OBJ_DIR = obj
+
+DIRS = $(OBJ_DIR)
+
+define Rule_Auto_Dependencies_base =
+    $(1:.o=.d): $(2) | $(DIRS)
+	@echo 'Generating dependencies file:  $(1)'
+	$(CC) $(3) -MT '$(1:.o=.d)' -MM -MG '$(2)' -MF '$(1:.o=.d)' -MP
+    $(1): $(1:.o=.d)
+endef
+
+# 1:object_file 2:source_file 3:compilation_flags
+define Rule_Auto_Dependencies =
+    $(eval $(call Rule_Auto_Dependencies_base,$(1),$(2),$(3)))
+    $(1): $(2)
+endef
+
+
+# GPU_dir := GPU
+GPU_dir := GPU_clean
+
+
+LIB_SRC = pthread_functions.c omp_functions.c hardware_topology.c task_topology.c hash.c random.c hashtable.c bitstream.c bytestream.c array_metrics.c string_util.c io.c parallel_io.c plot.c matrix_market.c openfoam_matrix.c rapl.c csr_converter.c csc_converter.c csr_converter_reference.c rcm.c kmeans.c kmeans_char.c csr_util.c csc_util.c artificial_matrix_generation.c ordered_set.c dynamic_array.c
+
+LIB_OBJ := $(LIB_SRC)
+LIB_OBJ := $(patsubst %.c,$(OBJ_DIR)/%$(SUFFIX).o,$(LIB_OBJ))
+LIB_OBJ := $(patsubst %.cpp,$(OBJ_DIR)/%$(SUFFIX).o,$(LIB_OBJ))
+
+
+EXE = $(TARGETS)
+
+all: $(EXE) | $(DIRS)
+
+
+spmv_csr_naive$(SUFFIX).exe: $(OBJ_DIR)/bench$(SUFFIX).o $(OBJ_DIR)/bench_spmv$(SUFFIX).o spmv_kernels/csr.cpp $(LIB_OBJ)
+	$(CPP) $(CPPFLAGS) -D'NAIVE' $^ -o $@ $(LDFLAGS)
+spmv_csr_vec$(SUFFIX).exe: $(OBJ_DIR)/bench$(SUFFIX).o $(OBJ_DIR)/bench_spmv$(SUFFIX).o spmv_kernels/csr_vec.cpp $(LIB_OBJ)
+	$(CPP) $(CPPFLAGS) -D'CSR_VECTOR' $^ -o $@ $(LDFLAGS)
+
+spmv_csr_vector_riscv$(SUFFIX).exe: $(OBJ_DIR)/bench$(SUFFIX).o $(OBJ_DIR)/bench_spmv$(SUFFIX).o spmv_kernels/csr_riscv.cpp $(LIB_OBJ)
+	$(CPP) $(CPPFLAGS) -D'RISCV_VECTOR' -D'RISCV_VECTOR_NAIVE' $^ -o $@ $(LDFLAGS)
+spmv_csr_vector_riscv_bulk$(SUFFIX).exe: $(OBJ_DIR)/bench$(SUFFIX).o $(OBJ_DIR)/bench_spmv$(SUFFIX).o spmv_kernels/csr_riscv.cpp $(LIB_OBJ)
+	$(CPP) $(CPPFLAGS) -D'RISCV_VECTOR' -D'RISCV_VECTOR_BULK' $^ -o $@ $(LDFLAGS)
+
+
+spmv_sell$(SUFFIX).exe: $(OBJ_DIR)/bench$(SUFFIX).o $(OBJ_DIR)/bench_spmv$(SUFFIX).o spmv_kernels/sell.cpp $(LIB_OBJ)
+	$(CPP) $(CPPFLAGS) $^ -o $@ $(LDFLAGS)
+spmv_sell_sorted$(SUFFIX).exe: $(OBJ_DIR)/bench$(SUFFIX).o $(OBJ_DIR)/bench_spmv$(SUFFIX).o spmv_kernels/sell_sorted.cpp $(LIB_OBJ)
+	$(CPP) $(CPPFLAGS) $^ -o $@ $(LDFLAGS)
+
+# RISC-V variant!
+SELL_C_S_ROOT=./spmv_kernels/sell-C-s/
+SELL_C_S_CFLAGS=-I'$(SELL_C_S_ROOT)' -D'EPI_EXT=09' -D'OMP=1' -D'INDEX64=1'
+SELL_C_S_LDFLAGS=-L'$(SELL_C_S_ROOT)' -lsellcs-spmv_i64_omp
+
+spmv_sell_c_s$(SUFFIX).exe: $(OBJ_DIR)/bench$(SUFFIX).o $(OBJ_DIR)/bench_spmv$(SUFFIX).o spmv_kernels/sell_c_s.cpp $(LIB_OBJ)
+	cd $(SELL_C_S_ROOT); make clean; make EPI_EXT=09 INDEX64=1 OMP=1 CC=clang LLVM=clang -j; cd -;
+	$(CPP) $(CPPFLAGS) $(SELL_C_S_CFLAGS) $^ -o $@ $(LDFLAGS) $(SELL_C_S_LDFLAGS)
+
+
+spmv_div_rf$(SUFFIX).exe: $(OBJ_DIR)/bench$(SUFFIX).o $(OBJ_DIR)/bench_spmv$(SUFFIX).o $(OBJ_DIR)/div_rf$(SUFFIX).o $(LIB_OBJ)
+	$(CPP) $(CPPFLAGS) $^ -o $@ $(LDFLAGS)
+
+############################################################
+
+# Object files
+
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/div_rf$(SUFFIX).o,spmv_kernels/DIV/div.cpp,$(CPPFLAGS) -D'DIV_TYPE_RF')
+	$(CPP) $(CPPFLAGS) -D'DIV_TYPE_RF' -c $< -o $@
+
+# Bench
+
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/bench$(SUFFIX).o,bench.cpp,$(CPPFLAGS))
+	$(CPP) $(CPPFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/bench_spmv$(SUFFIX).o,bench_spmv.cpp,$(CPPFLAGS))
+	$(CPP) $(CPPFLAGS) -c $< -o $@
+
+# Library
+
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/artificial_matrix_generation$(SUFFIX).o,$(AMG_PATH)/artificial_matrix_generation.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/ordered_set$(SUFFIX).o,$(AMG_PATH)/ordered_set.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/pthread_functions$(SUFFIX).o,$(library)/pthread_functions.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/omp_functions$(SUFFIX).o,$(library)/omp_functions.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/hardware_topology$(SUFFIX).o,$(library)/topology/hardware_topology.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/task_topology$(SUFFIX).o,$(library)/topology/task_topology.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/hash$(SUFFIX).o,$(library)/hash/hash.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/random$(SUFFIX).o,$(library)/random.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/bitstream$(SUFFIX).o,$(library)/bitstream.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/bytestream$(SUFFIX).o,$(library)/bytestream.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/array_metrics$(SUFFIX).o,$(library)/array_metrics.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/string_util$(SUFFIX).o,$(library)/string_util.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/io$(SUFFIX).o,$(library)/io.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/parallel_io$(SUFFIX).o,$(library)/parallel_io.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/plot$(SUFFIX).o,$(library)/plot/plot.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/matrix_market$(SUFFIX).o,$(library)/storage_formats/matrix_market/matrix_market.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/openfoam_matrix$(SUFFIX).o,$(library)/storage_formats/openfoam/openfoam_matrix.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/rapl$(SUFFIX).o,$(library)/monitoring/power/rapl.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/kmeans$(SUFFIX).o,$(library)/kmeans/kmeans.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/kmeans_char$(SUFFIX).o,$(library)/kmeans/kmeans_char.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/hashtable$(SUFFIX).o,$(library)/aux/hashtable.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/dynamic_array$(SUFFIX).o,$(library)/aux/dynamic_array.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/csr_converter$(SUFFIX).o,$(library)/aux/csr_converter.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/csc_converter$(SUFFIX).o,$(library)/aux/csc_converter.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/csr_converter_reference$(SUFFIX).o,$(library)/aux/csr_converter_reference.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/csr_util$(SUFFIX).o,$(library)/aux/csr_util.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/csc_util$(SUFFIX).o,$(library)/aux/csc_util.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+$(call Rule_Auto_Dependencies,$(OBJ_DIR)/rcm$(SUFFIX).o,$(library)/aux/rcm.c,$(CFLAGS))
+	$(CC) $(CFLAGS) -c $< -o $@
+
+
+$(DIRS): %:
+	mkdir -p $@
+
+clean:
+	$(RM) $(OBJ_DIR)/* *.o *.exe a.out
+
+-include $(OBJ_DIR)/*.d
+

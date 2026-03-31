@@ -1,0 +1,13 @@
+#include "quicksort_blocked_gen_undef.h"
+#pragma  pop_macro("QUICKSORT_BLOCKED_GEN_TYPE_1")
+#pragma  pop_macro("QUICKSORT_BLOCKED_GEN_TYPE_2")
+#pragma  pop_macro("QUICKSORT_BLOCKED_GEN_TYPE_3")
+#pragma  pop_macro("QUICKSORT_BLOCKED_GEN_VECTOR_LEN")
+#pragma  pop_macro("QUICKSORT_BLOCKED_GEN_SUFFIX")
+#pragma  pop_macro("QUICKSORT_BLOCKED_GEN_FUNCTION_ATTRIBUTES")
+#pragma  pop_macro("QUICKSORT_BLOCKED_GEN_EXPAND")
+#pragma  pop_macro("QUICKSORT_BLOCKED_GEN_EXPAND_TYPE")
+#pragma  pop_macro("_TYPE_V")
+#pragma  pop_macro("_TYPE_I")
+#pragma  pop_macro("_TYPE_AD")
+#pragma  pop_macro("quicksort_blocked")
