@@ -27,7 +27,7 @@ module load sdv_trace/development
 
 ### Test different formats
 
-To test different formats/implementations, you can use the class template provided [here](./src/spmv_kernel_template.cpp). The new class inherits properties from the `Matrix_Format` class defined [here](./src/spmv_kernel.h). A conversion function (`csr_to_format`) and an execution function (`spmv`) have to be defined for the new format.
+To test different formats/implementations, you can use the class template provided [here](./src/spmv_kernels/spmv_kernel_template.cpp). The new class inherits properties from the `Matrix_Format` class defined [here](./src/spmv_kernels/spmv_kernel.h). A conversion function (`csr_to_format`) and an execution function (`spmv`) have to be defined for the new format.
 
 ### How to compile
 
@@ -63,21 +63,20 @@ In RAVE emulation, reading files from disk (validation matrices) is very slow, s
 
 ### SpMV Kernels tested
 
-* `csr_naive`: no vectorization, baseline implementation that balances row-workload among threads.
-* `csr_vector_riscv`: row-based vectorization, achieves average vector length (avg VL) equal to the avg row size.
-* `csr_vector_riscv_bulk`: vvrettos's vectorization, close to 256 avg VL, but not quite!
-* `csr_vec`: generic (across architectures) vectorization , achieves 256 avg VL.
-* `sell`: Sliced ELLPACK format, achieves 256 avg VL
-* `sell_sorted`: Sliced ELLPACK format, sort rows by size, reduces padding overhead, achieves 256 avg VL
-* `sell_c_s`: famous SELL-C-σ format, achieves 256 avg VL, adapted from [here](https://gitlab.bsc.es/benchmarks/risc-v-benchmarks/-/blob/master/hpc_benchmarks/spmv-ellpack/spmv/libsellcs-spmv/sellcs_mv_kernels_epi.c) to work with RVV intrinsics instead of EPI
-
-* **`div_rf`: remains to be tested.**
+* `csr_naive`: The baseline, non-vectorized implementation that distributes the work by balancing the row workload across threads.
+* `csr_vec`: A generalized, cross-architecture row-wise vectorization strategy. It utilizes masks to set the desired vector length, therefore it always reports 256 avg VL, but still is bound by the row length.
+* `csr_vector_riscv`: A row-wise vectorization specifically tailored for RISC-V. Its average VL is directly bound by the matrix's average row size.
+* `csr_vector_riscv_bulk`: A RISC-V vectorization approach that packs multiple rows together to maximize throughput during the multiplication phase. However, writing the results to the output vector relies on a serialized, per-row vectorized reduction, resulting in an average VL below the 256 maximum.
+* `sell`: The Sliced ELLPACK format, configured with a slice size equal to the vector length (Slice=VL). This necessitates a local transposition of the non-zero arrays to ensure contiguous memory access during wide vector loads, achieving an average VL of 256.
+* `sell_sorted`: An optimized variant of the Sliced ELLPACK format that locally sorts each thread's rows by size prior to slicing. This minimizes padding overhead while maintaining an average VL of 256.
+* `sell_c_s`: The widely recognized SELL-C-σ format, adapted to RVV intrinsics rather than EPI (source [here](https://gitlab.bsc.es/benchmarks/risc-v-benchmarks/-/blob/master/hpc_benchmarks/spmv-ellpack/spmv/libsellcs-spmv/sellcs_mv_kernels_epi.c)). It achieves an average VL of 256.
+* `div_rf`: A custom compression format developed by CSLab ([publication](https://dl.acm.org/doi/10.1145/3721145.3725767)) that achieves a dual compression of both matrix indices and values. Operating under a COO-centric logic, it sustains an average VL of 256.
 
 ---
 
 ### (Developer notes) Changes from default repository ([SpMV-Research](https://github.com/cslab-ntua/SpMV-Research))
 
-* In [`make.sh`](./src/make.sh), added this small snippet so that RAVE emulation enables or disables the use of VEC_LEN=256 in [`csr_vec.cpp`](./src/spmv_kernels/csr_vec.cpp), [`sell.cpp`](./src/spmv_kernels/sell.cpp), [`sell_sorted.cpp`](./src/spmv_kernels/sell_sorted.cpp) files. Otherwise default (vec_len_default_f64) is used.
+* In [`make.sh`](./src/make.sh), added this small snippet so that RAVE emulation enables or disables the use of VEC_LEN=256 in [`csr_vec.cpp`](./src/spmv_kernels/csr_vec.cpp), [`sell.cpp`](./src/spmv_kernels/sell.cpp), [`sell_sorted.cpp`](./src/spmv_kernels/sell_sorted.cpp) [`div_gather_coords.h`](./src/spmv_kernels/DIV/div_gather_coords.h) files. Otherwise default (vec_len_default_f64) is used.
 
 ```
 if ((RAVE_EMULATION)); then
@@ -114,9 +113,12 @@ fi
 long ii_e_last = ii_e;
 if (ii_e * VEC_LEN > i_e){
     // ii_e_last -= VEC_LEN; // this is wrong!
-    ii_e_last -= 1;
+    ii_e_last--;
 }
 ```
 
 * In [`bench_spmv.cpp`](./src/bench_spmv.cpp), removed the check of the L3 cache (and all relevant flags in [`config.sh`](./config.sh)) because it caused a seg fault in Banana Pi for a specific format only. Additionally, removed any rapl-related counters.
 
+* In [`csr_riscv.cpp`](./src/spmv_kernels/csr_riscv.cpp) changed `v_idx_row` to `v_idx_col`.
+
+* In [`div_kernels_rf.h`](./src/spmv_kernels/DIV/div_kernels_rf.h) put Line 405 in comments. We need to disable this quicksort call, due to wide Vector Length.

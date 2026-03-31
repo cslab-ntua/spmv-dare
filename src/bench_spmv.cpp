@@ -313,7 +313,6 @@ compute(struct CSR_reference_s * csr, struct Matrix_Format * MF,
 		time_total = 0;
 		num_loops = 0;
 		dynarray_d * da_iter_times = dynarray_new_d(10 * min_num_loops);
-
 		while (time_total < min_runtime || num_loops < min_num_loops)
 		{
 			#ifdef SDV_TRACING
@@ -353,8 +352,10 @@ compute(struct CSR_reference_s * csr, struct Matrix_Format * MF,
 			trace_disable(); 
 		#endif
 
-		// gflops = csr->nnz_expanded_symmetry / time_total * num_loops * 2 * 1e-9;
-		gflops = csr->nnz_expanded_symmetry / time_median * 2 * 1e-9;
+		/*****************************************************************************************/
+
+		// gflops = csr->nnz_matrix / time_total * num_loops * 2 * 1e-9;
+		gflops = csr->nnz_matrix / time_median * 2 * 1e-9;
 		printf("GFLOPS = %lf (%s)\n", gflops, getenv("PROGG"));
 	}
 
@@ -379,6 +380,7 @@ compute(struct CSR_reference_s * csr, struct Matrix_Format * MF,
 			i += snprintf(buf + i, buf_n - i, ",%s", "csr_m");
 			i += snprintf(buf + i, buf_n - i, ",%s", "csr_n");
 			i += snprintf(buf + i, buf_n - i, ",%s", "csr_nnz");
+			i += snprintf(buf + i, buf_n - i, ",%s", "csr_nnz_matrix");
 			i += snprintf(buf + i, buf_n - i, ",%s", "symmetry");
 			i += snprintf(buf + i, buf_n - i, ",%s", "time");
 			i += snprintf(buf + i, buf_n - i, ",%s", "time_iter_min");
@@ -414,6 +416,7 @@ compute(struct CSR_reference_s * csr, struct Matrix_Format * MF,
 		i += snprintf(buf + i, buf_n - i, ",%lu", csr->m);
 		i += snprintf(buf + i, buf_n - i, ",%lu", csr->n);
 		i += snprintf(buf + i, buf_n - i, ",%lu", csr->nnz);
+		i += snprintf(buf + i, buf_n - i, ",%lu", csr->nnz_matrix);
 		i += snprintf(buf + i, buf_n - i, ",%lu", csr->symmetric);
 		i += snprintf(buf + i, buf_n - i, ",%lf", time_total);
 		i += snprintf(buf + i, buf_n - i, ",%lf", time_min);
@@ -558,7 +561,7 @@ bench(struct CSR_reference_s * csr, struct Matrix_Format * MF, long print_labels
 	y = (typeof(y)) aligned_alloc(64, (csr->m+64) * sizeof(*y));
 	#pragma omp parallel for
 	for(long i=0;i<csr->m;i++)
-		y[i] = 0.0;    // Test whether the format zeros rows with no nnz.
+		y[i] = 1.0;    // Test whether the format zeros rows with no nnz.
 
 	long min_num_loops;
 	#ifdef SDV_TRACING

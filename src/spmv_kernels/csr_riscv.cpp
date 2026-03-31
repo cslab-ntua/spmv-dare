@@ -193,13 +193,13 @@ subkernel_csr_vector_riscv(CSR * restrict csr, ValueType * restrict x, ValueType
 			long givenVectorLength = __builtin_epi_vsetvl(requestedVectorLength, __epi_e64, __epi_m1);
 
 			__epi_1xf64 va = __builtin_epi_vload_1xf64(&csr->a[j_s + colid], givenVectorLength);
-			__epi_1xi64 v_idx_row = __builtin_epi_vload_1xi64(&csr->localJa[j_s + colid], givenVectorLength);
+			__epi_1xi64 v_idx_col = __builtin_epi_vload_1xi64(&csr->localJa[j_s + colid], givenVectorLength);
 
 			__epi_1xi64 vthree = __builtin_epi_vmv_v_x_1xi64(3, givenVectorLength);
 
-			v_idx_row = __builtin_epi_vsll_1xi64(v_idx_row, vthree, givenVectorLength);
+			v_idx_col = __builtin_epi_vsll_1xi64(v_idx_col, vthree, givenVectorLength);
 
-			__epi_1xf64 vx = __builtin_epi_vload_indexed_1xf64(x, v_idx_row, givenVectorLength);
+			__epi_1xf64 vx = __builtin_epi_vload_indexed_1xf64(x, v_idx_col, givenVectorLength);
 
 			__epi_1xf64 vprod = __builtin_epi_vfmul_1xf64(va, vx, givenVectorLength);
 			__epi_1xf64 partial_res = __builtin_epi_vfmv_v_f_1xf64(0.0, givenVectorLength);
@@ -241,13 +241,13 @@ subkernel_csr_vector_riscv(CSR * restrict csr, ValueType * restrict x, ValueType
 			long givenVectorLength = __riscv_vsetvl_e64m1(requestedVectorLength);
 
 			vfloat64m1_t va = __riscv_vle64_v_f64m1(&csr->a[j_s + colid], givenVectorLength);
-			vuint32mf2_t v_idx_row = __riscv_vle32_v_u32mf2((uint32_t*) &csr->ja[j_s + colid], givenVectorLength);
+			vuint32mf2_t v_idx_col = __riscv_vle32_v_u32mf2((uint32_t*) &csr->ja[j_s + colid], givenVectorLength);
 
 			vuint32mf2_t vthree = __riscv_vmv_v_x_u32mf2(3, givenVectorLength);
 
-			v_idx_row = __riscv_vsll_vv_u32mf2(v_idx_row, vthree, givenVectorLength);
+			v_idx_col = __riscv_vsll_vv_u32mf2(v_idx_col, vthree, givenVectorLength);
 
-			vfloat64m1_t vx = __riscv_vluxei32_v_f64m1(x, v_idx_row, givenVectorLength);
+			vfloat64m1_t vx = __riscv_vluxei32_v_f64m1(x, v_idx_col, givenVectorLength);
 
 			vfloat64m1_t vprod = __riscv_vfmul_vv_f64m1(va, vx, givenVectorLength);
 			vfloat64m1_t partial_res = __riscv_vfmv_v_f_f64m1(0.0, givenVectorLength);
@@ -291,7 +291,7 @@ void subkernel_csr_vector_riscv_bulk(CSR * restrict csr, ValueType * restrict x,
 	int maxNaiveComputations = 5000;
 	int naiveComputationsCounter = 0;
 
-	// ValueType sum;
+	ValueType sum;
 	// long i;
 	long j_s, j_e; // Column Start, Column End
 
@@ -377,11 +377,12 @@ void subkernel_csr_vector_riscv_bulk(CSR * restrict csr, ValueType * restrict x,
 
 		vfloat64m1_t va = __riscv_vle64_v_f64m1(&csr->a[j_s], givenVectorLength);
 
-		vuint32mf2_t v_idx_row = __riscv_vle32_v_u32mf2((uint32_t*) &csr->ja[j_s], givenVectorLength);
+		vuint32mf2_t v_idx_col = __riscv_vle32_v_u32mf2((uint32_t*) &csr->ja[j_s], givenVectorLength);
 
+		// luxei expects byte offsets, not indices. so we have to shift left the loaded column indices by 3
 		vuint32mf2_t vthree = __riscv_vmv_v_x_u32mf2(3, givenVectorLength);
-		v_idx_row = __riscv_vsll_vv_u32mf2(v_idx_row, vthree, givenVectorLength);
-		vfloat64m1_t vx = __riscv_vluxei32_v_f64m1(x, v_idx_row, givenVectorLength);
+		v_idx_col = __riscv_vsll_vv_u32mf2(v_idx_col, vthree, givenVectorLength);
+		vfloat64m1_t vx = __riscv_vluxei32_v_f64m1(x, v_idx_col, givenVectorLength);
 
 		/* Debug: store vx to array and print contents */
 		vfloat64m1_t vprod = __riscv_vfmul_vv_f64m1(va, vx, givenVectorLength);
@@ -391,22 +392,17 @@ void subkernel_csr_vector_riscv_bulk(CSR * restrict csr, ValueType * restrict x,
 		for (long i_sum = rowStart; i_sum < currentRow; i_sum++) {
 			currentNnz = csr->row_ptr[i_sum + 1] - csr->row_ptr[i_sum];
 
-			#ifndef BULK_VECTOR_STORE
-				if (currentNnz == 0) {
-					y[i_sum] = 0.0;
-					continue;
-				}
+			if (currentNnz == 0) {
+				y[i_sum] = 0.0;
+				continue;
+			}
 
-				vfloat64m1_t sum = __riscv_vfmv_v_f_f64m1(0.0, currentNnz);
-				sum = __riscv_vfredusum_vs_f64m1_f64m1(vprod, sum, currentNnz);
-				y[i_sum] = __riscv_vfmv_f_s_f64m1_f64(sum);
+			vfloat64m1_t sum = __riscv_vfmv_v_f_f64m1(0.0, currentNnz);
+			sum = __riscv_vfredusum_vs_f64m1_f64m1(vprod, sum, currentNnz);
+			y[i_sum] = __riscv_vfmv_f_s_f64m1_f64(sum);
 
-				/* Shift positions using slidedown */
-				vprod = __riscv_vslidedown_vx_f64m1(vprod, currentNnz, givenVectorLength);
-			#else
-
-			#endif
-
+			/* Shift positions using slidedown */
+			vprod = __riscv_vslidedown_vx_f64m1(vprod, currentNnz, givenVectorLength);
 		}
 
 		/* Update rowStart */

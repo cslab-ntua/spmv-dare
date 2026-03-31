@@ -123,6 +123,8 @@ conf_vars=(
     ['DIV_PACKET_REORDERING']=0
     # ['DIV_PACKET_REORDERING']=1
 
+    ['CSRCV_NUM_PACKET_VALS']=16384
+
     # Maximum number of the machine's cores.
     ['max_cores']=256
 
@@ -169,18 +171,18 @@ declare -A progs
 
 # SpMV kernels to benchmark (uncomment the ones you want).
 progs=(
-    # ['csr_naive_d']="${script_dir}/src/spmv_csr_naive_d.exe"
-    # ['csr_vec_d']="${script_dir}/src/spmv_csr_vec_d.exe"
+    ['csr_naive_d']="${script_dir}/src/spmv_csr_naive_d.exe"
+    ['csr_vec_d']="${script_dir}/src/spmv_csr_vec_d.exe"
 
-    # ['csr_vector_riscv_d']="${script_dir}/src/spmv_csr_vector_riscv_d.exe"
+    ['csr_vector_riscv_d']="${script_dir}/src/spmv_csr_vector_riscv_d.exe"
     ['csr_vector_riscv_bulk_d']="${script_dir}/src/spmv_csr_vector_riscv_bulk_d.exe"
 
-    # ['sell_d']="${script_dir}/src/spmv_sell_d.exe"
-    # ['sell_sorted_d']="${script_dir}/src/spmv_sell_sorted_d.exe"
+    ['sell_d']="${script_dir}/src/spmv_sell_d.exe"
+    ['sell_sorted_d']="${script_dir}/src/spmv_sell_sorted_d.exe"
 
-    # ['sell_c_s_d']="${script_dir}/src/spmv_sell_c_s_d.exe"
+    ['sell_c_s_d']="${script_dir}/src/spmv_sell_c_s_d.exe"
 
-    # ['div_rf_d']="${script_dir}/src/spmv_div_rf_d.exe"
+    ['div_rf_d']="${script_dir}/src/spmv_div_rf_d.exe"
 )
 
 # Export variables for make.

@@ -45,6 +45,7 @@
 # Repo related files
 
 .vscode/
+obj/
 
 # sparse matrices
 validation_matrices/*.mtx

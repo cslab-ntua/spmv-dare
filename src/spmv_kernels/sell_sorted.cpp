@@ -362,8 +362,7 @@ compute_sell(SELLArray * sell, ValueType * x , ValueType * y)
 
 		long ii_e_last = ii_e;
 		if (ii_e * VEC_LEN > i_e){
-			// ii_e_last -= VEC_LEN; // this is wrong!
-			ii_e_last -= 1;
+			ii_e_last--;
 		}
 
 		// #pragma GCC unroll 2

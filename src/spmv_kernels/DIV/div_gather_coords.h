@@ -31,16 +31,24 @@ extern "C"{
 		#define VTF   f32
 		// #define VEC_LEN  1
 		// #define VEC_LEN  vec_len_default_f32
-		#define VEC_LEN  vec_len_default_f64
+		// #define VEC_LEN  vec_len_default_f64
 		// #define VEC_LEN  4
 		// #define VEC_LEN  8
 		// #define VEC_LEN  16
 		// #define VEC_LEN  32
+		#if defined(RAVE_EMULATION) && RAVE_EMULATION == 1
+			#define VEC_LEN  512
+		#else
+			#define VEC_LEN  vec_len_default_f32
+		#endif
 	#elif DOUBLE == 1
 		#define VTI   i64
 		#define VTF   f64
-		#define VEC_LEN  vec_len_default_f64
-		// #define VEC_LEN  1
+		#if defined(RAVE_EMULATION) && RAVE_EMULATION == 1
+			#define VEC_LEN  256
+		#else
+			#define VEC_LEN  vec_len_default_f64
+		#endif
 	#endif
 
 	// #include "vectorization.h"
