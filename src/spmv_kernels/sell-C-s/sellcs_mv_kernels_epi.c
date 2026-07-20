@@ -183,12 +183,12 @@ void sellcs_mv_d(const sellcs_matrix_t* matrix,
 {
     const uint32_t vlen = matrix->C;
 
+#if DOUBLE
     /* This can also be achieved by shifting 3 times later??? */
     #ifndef INDEX64
         vuint32mf2_t idxmult = __riscv_vmv_v_x_u32mf2(8, vlen);
     #else
         vuint64m1_t idxmult = __riscv_vmv_v_x_u64m1(8, vlen);
-
         // Prepare a memory buffer to store vector contents
         // uint64_t buffer[1024];  // VLEN_MAX should be >= vlen
         // Store vector into memory
@@ -198,22 +198,42 @@ void sellcs_mv_d(const sellcs_matrix_t* matrix,
         //     printf("idxmult[%zu] = %lu\n", i, buffer[i]);
         // }
     #endif
+#else
+    #ifndef INDEX64
+	vuint32m1_t idxmult = __riscv_vmv_v_x_u32m1(4, vlen);
+    #else
+    	vuint64m2_t idxmult = __riscv_vmv_v_x_u64m2(4, vlen);
+    #endif
+#endif
 
     for (size_t slice_idx = start_slice; slice_idx < end_slice; slice_idx++) {
     index_t row_idx = slice_idx << matrix->shift;
     unsigned long int max_lanes = ((row_idx + vlen) > matrix->nrows) ? (matrix->nrows - row_idx) : vlen;
     unsigned long int gvl = 0;
 
+#if DOUBLE
     gvl = __riscv_vsetvl_e64m1(max_lanes);
+#else
+    gvl = __riscv_vsetvl_e32m1(max_lanes);
+#endif
 
     elem_t* values_pointer = &matrix->values[matrix->slice_pointers[slice_idx]];
     index_t* colidx_pointer = &matrix->column_indices[matrix->slice_pointers[slice_idx]];
 
     // This changes in v0.9
+
+
+#if DOUBLE
     vfloat64m1_t tmp_results = __riscv_vfmv_v_f_f64m1(0.0, gvl);
+#else
+    vfloat32m1_t tmp_results = __riscv_vfmv_v_f_f32m1(0.0, gvl);
+#endif
+
 
     index_t swidth = matrix->slice_widths[slice_idx];
 
+
+#if DOUBLE
     #ifndef INDEX64
         vuint32mf2_t y_sc_idx = __riscv_vle32_v_u32mf2((uint32_t*) &matrix->row_order[row_idx], gvl);
         y_sc_idx = __riscv_vmul_vv_u32mf2(y_sc_idx, idxmult, gvl);
@@ -221,11 +241,28 @@ void sellcs_mv_d(const sellcs_matrix_t* matrix,
         vuint64m1_t y_sc_idx = __riscv_vle64_v_u64m1((uint64_t*) &matrix->row_order[row_idx], gvl);
         y_sc_idx = __riscv_vmul_vv_u64m1(y_sc_idx, idxmult, gvl);
     #endif
+#else
+    #ifndef INDEX64
+        vuint32m1_t y_sc_idx = __riscv_vle32_v_u32m1((uint32_t*) &matrix->row_order[row_idx], gvl);
+        y_sc_idx = __riscv_vmul_vv_u32m1(y_sc_idx, idxmult, gvl);
+    #else
+        vuint64m2_t y_sc_idx = __riscv_vle64_v_u64m2((uint64_t*) &matrix->row_order[row_idx], gvl);
+        y_sc_idx = __riscv_vmul_vv_u64m2(y_sc_idx, idxmult, gvl);
+    #endif
+#endif
+
 
     for (index_t i = 0; i < swidth; i++) {
         // Load Values and Column indices
-        vfloat64m1_t values_vblock = __riscv_vle64_v_f64m1(values_pointer, gvl);
 
+#if DOUBLE
+        vfloat64m1_t values_vblock = __riscv_vle64_v_f64m1(values_pointer, gvl);
+#else
+	vfloat32m1_t values_vblock = __riscv_vle32_v_f32m1(values_pointer, gvl);
+#endif
+
+
+#if DOUBLE
         #ifndef INDEX64
             vuint32mf2_t col_index_vblock = __riscv_vle32_v_u32mf2((uint32_t*) colidx_pointer, gvl);
             col_index_vblock = __riscv_vmul_vv_u32mf2(col_index_vblock, idxmult, gvl);
@@ -233,26 +270,50 @@ void sellcs_mv_d(const sellcs_matrix_t* matrix,
             vuint64m1_t col_index_vblock = __riscv_vle64_v_u64m1((uint64_t*) colidx_pointer, gvl);
             col_index_vblock = __riscv_vmul_vv_u64m1(col_index_vblock, idxmult, gvl);
         #endif
-        
+#else
+	#ifndef INDEX64
+            vuint32m1_t col_index_vblock = __riscv_vle32_v_u32m1((uint32_t*) colidx_pointer, gvl);
+            col_index_vblock = __riscv_vmul_vv_u32m1(col_index_vblock, idxmult, gvl);
+        #else
+            vuint64m2_t col_index_vblock = __riscv_vle64_v_u64m2((uint64_t*) colidx_pointer, gvl);
+            col_index_vblock = __riscv_vmul_vv_u64m2(col_index_vblock, idxmult, gvl);
+        #endif
+#endif
+     
         // Gather X
 
+#if DOUBLE
         #ifndef INDEX64
             vfloat64m1_t x_vblock = __riscv_vluxei32_v_f64m1(&x[0], col_index_vblock, gvl);
         #else
             vfloat64m1_t x_vblock = __riscv_vluxei64_v_f64m1(&x[0], col_index_vblock, gvl);
         #endif
-
         tmp_results = __riscv_vfmacc_vv_f64m1(tmp_results, x_vblock, values_vblock, gvl);
-
+#else
+	#ifndef INDEX64
+            vfloat32m1_t x_vblock = __riscv_vluxei32_v_f32m1(&x[0], col_index_vblock, gvl);
+        #else
+            vfloat32m1_t x_vblock = __riscv_vluxei64_v_f32m1(&x[0], col_index_vblock, gvl);
+        #endif
+        tmp_results = __riscv_vfmacc_vv_f32m1(tmp_results, x_vblock, values_vblock, gvl);
+#endif
         values_pointer += vlen;
         colidx_pointer += vlen;
     }
 
+#if DOUBLE
     #ifndef INDEX64
         __riscv_vsuxei32_v_f64m1(&y[0], y_sc_idx, tmp_results, gvl);
     #else
         __riscv_vsuxei64_v_f64m1(&y[0], y_sc_idx, tmp_results, gvl);
     #endif
+#else
+    #ifndef INDEX64
+        __riscv_vsuxei32_v_f32m1(&y[0], y_sc_idx, tmp_results, gvl);
+    #else
+        __riscv_vsuxei64_v_f32m1(&y[0], y_sc_idx, tmp_results, gvl);
+    #endif
+#endif
     }
 }
 

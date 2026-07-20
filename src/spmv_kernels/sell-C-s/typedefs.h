@@ -20,7 +20,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+
+//typedef double elem_t;
+
+#if DOUBLE
 typedef double elem_t;
+#else
+typedef float elem_t;
+#endif
 
 #ifndef INDEX64
 typedef int32_t index_t;

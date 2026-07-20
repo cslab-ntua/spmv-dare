@@ -167,6 +167,7 @@ csr_to_format(INT_T * row_ptr, INT_T * col_ind, ValueTypeReference * values, lon
 
 #ifdef EPI_INTRINSICS
 /* EPI Intrinsics */
+
 void
 subkernel_csr_vector_riscv(CSR * restrict csr, ValueType * restrict x, ValueType * restrict y, long i_s, long i_e)
 {
@@ -174,7 +175,7 @@ subkernel_csr_vector_riscv(CSR * restrict csr, ValueType * restrict x, ValueType
 	long i, j;
 	long j_s, j_e; // Column Start, Column End
 
-	/* Main Loop - Thread iterates from rows i_s till i_e */
+	// Main Loop - Thread iterates from rows i_s till i_e 
 	for (i = i_s; i < i_e; i++) {
 		y[i] = 0;
 		j_s = csr->row_ptr[i];
@@ -185,10 +186,10 @@ subkernel_csr_vector_riscv(CSR * restrict csr, ValueType * restrict x, ValueType
 
 		long nnz = j_e - j_s;
 
-		/* Inner Loop - Iterate over nnz using vector intrinsics */
+		// Inner Loop - Iterate over nnz using vector intrinsics 
 		long colid;
-
-		for (colid = 0; colid < nnz;) {
+#if DOUBLE
+  		   for (colid = 0; colid < nnz;) {
 			long requestedVectorLength = nnz - colid;
 			long givenVectorLength = __builtin_epi_vsetvl(requestedVectorLength, __epi_e64, __epi_m1);
 
@@ -205,13 +206,32 @@ subkernel_csr_vector_riscv(CSR * restrict csr, ValueType * restrict x, ValueType
 			__epi_1xf64 partial_res = __builtin_epi_vfmv_v_f_1xf64(0.0, givenVectorLength);
 			partial_res = __builtin_epi_vfredsum_1xf64(vprod, partial_res, givenVectorLength);
 			sum += __builtin_epi_vfmv_f_s_1xf64(partial_res);
-
 			colid += givenVectorLength;
-		}
+		   }
+#else
+                   for (colid = 0; colid < nnz;) {
+                        long requestedVectorLength = nnz - colid;
+                        long givenVectorLength = __builtin_epi_vsetvl(requestedVectorLength, __epi_e32, __epi_m1);
 
+                        __epi_1xf32 va = __builtin_epi_vload_1xf32(&csr->a[j_s + colid], givenVectorLength);
+                        __epi_1xi32 v_idx_col = __builtin_epi_vload_1xi32(&csr->localJa[j_s + colid], givenVectorLength);
+
+                        __epi_1xi32 vthree = __builtin_epi_vmv_v_x_1xi32(2, givenVectorLength);
+
+                        v_idx_col = __builtin_epi_vsll_1xi32(v_idx_col, vthree, givenVectorLength);
+                        __epi_1xf32 vx = __builtin_epi_vload_indexed_1xf32(x, v_idx_col, givenVectorLength);
+                        __epi_1xf32 vprod = __builtin_epi_vfmul_1xf32(va, vx, givenVectorLength);
+                        __epi_1xf32 partial_res = __builtin_epi_vfmv_v_f_1xf32(0.0, givenVectorLength);
+                        partial_res = __builtin_epi_vfredsum_1xf32(vprod, partial_res, givenVectorLength);
+                        sum += __builtin_epi_vfmv_f_s_1xf32(partial_res);
+
+                        colid += givenVectorLength;
+                   }
+#endif
 		y[i] = sum;
 	}
 }
+
 
 #else 
 /* Risc-V Vector Instrinsics */
@@ -222,7 +242,7 @@ subkernel_csr_vector_riscv(CSR * restrict csr, ValueType * restrict x, ValueType
 	long i;
 	long j_s, j_e; // Column Start, Column End
 
-	/* Main Loop - Thread iterates from rows i_s till i_e */
+	// Main Loop - Thread iterates from rows i_s till i_e 
 	for (i = i_s; i < i_e; i++) {
 		y[i] = 0;
 		j_s = csr->row_ptr[i];
@@ -233,11 +253,11 @@ subkernel_csr_vector_riscv(CSR * restrict csr, ValueType * restrict x, ValueType
 
 		long nnz = j_e - j_s;
 
-		/* Inner Loop - Iterate over nnz using vector intrinsics */
+		// Inner Loop - Iterate over nnz using vector intrinsics 
 		long colid;
-
 		for (colid = 0; colid < nnz;) {
 			long requestedVectorLength = nnz - colid;
+#if DOUBLE
 			long givenVectorLength = __riscv_vsetvl_e64m1(requestedVectorLength);
 
 			vfloat64m1_t va = __riscv_vle64_v_f64m1(&csr->a[j_s + colid], givenVectorLength);
@@ -253,13 +273,29 @@ subkernel_csr_vector_riscv(CSR * restrict csr, ValueType * restrict x, ValueType
 			vfloat64m1_t partial_res = __riscv_vfmv_v_f_f64m1(0.0, givenVectorLength);
 			partial_res = __riscv_vfredusum_vs_f64m1_f64m1(vprod, partial_res, givenVectorLength);
 			sum += __riscv_vfmv_f_s_f64m1_f64(partial_res);
+#else
+			long givenVectorLength = __riscv_vsetvl_e32m1(requestedVectorLength);
 
-			colid += givenVectorLength;
+			vfloat32m1_t va = __riscv_vle32_v_f32m1(&csr->a[j_s + colid], givenVectorLength);
+			vuint32m1_t v_idx_col = __riscv_vle32_v_u32m1((uint32_t*) &csr->ja[j_s + colid], givenVectorLength);
+
+			vuint32m1_t vtwo = __riscv_vmv_v_x_u32m1(2, givenVectorLength);
+
+			v_idx_col = __riscv_vsll_vv_u32m1(v_idx_col, vtwo, givenVectorLength);
+
+			vfloat32m1_t vx = __riscv_vluxei32_v_f32m1(x, v_idx_col, givenVectorLength);
+
+			vfloat32m1_t vprod = __riscv_vfmul_vv_f32m1(va, vx, givenVectorLength);
+			vfloat32m1_t partial_res = __riscv_vfmv_v_f_f32m1(0.0f, givenVectorLength);
+			partial_res = __riscv_vfredusum_vs_f32m1_f32m1(vprod, partial_res, givenVectorLength);
+			sum += __riscv_vfmv_f_s_f32m1_f32(partial_res);
+#endif
+		colid += givenVectorLength;
 		}
-
 		y[i] = sum;
 	}
 }
+
 
 #endif /* EPI_INTRINSICS */
 
@@ -367,7 +403,11 @@ void subkernel_csr_vector_riscv_bulk(CSR * restrict csr, ValueType * restrict x,
 		
 		nnz = j_e - j_s;
 
+#if DOUBLE
 		long givenVectorLength = __riscv_vsetvl_e64m1(nnz);
+#else
+		long givenVectorLength = __riscv_vsetvl_e32m1(nnz);
+#endif
 		if (givenVectorLength != nnz) {
 			/* Create a fail-safe for this one as well. Basically make it run the naive vectorization version */
 			subkernel_csr_vector_riscv(csr, x, y, rowStart, currentRow - 1);
@@ -375,17 +415,26 @@ void subkernel_csr_vector_riscv_bulk(CSR * restrict csr, ValueType * restrict x,
 			continue;
 		}
 
+#if DOUBLE
 		vfloat64m1_t va = __riscv_vle64_v_f64m1(&csr->a[j_s], givenVectorLength);
-
 		vuint32mf2_t v_idx_col = __riscv_vle32_v_u32mf2((uint32_t*) &csr->ja[j_s], givenVectorLength);
-
 		// luxei expects byte offsets, not indices. so we have to shift left the loaded column indices by 3
 		vuint32mf2_t vthree = __riscv_vmv_v_x_u32mf2(3, givenVectorLength);
 		v_idx_col = __riscv_vsll_vv_u32mf2(v_idx_col, vthree, givenVectorLength);
 		vfloat64m1_t vx = __riscv_vluxei32_v_f64m1(x, v_idx_col, givenVectorLength);
-
 		/* Debug: store vx to array and print contents */
 		vfloat64m1_t vprod = __riscv_vfmul_vv_f64m1(va, vx, givenVectorLength);
+#else
+                vfloat32m1_t va = __riscv_vle32_v_f32m1(&csr->a[j_s], givenVectorLength);
+                vuint32m1_t v_idx_col = __riscv_vle32_v_u32m1((uint32_t*) &csr->ja[j_s], givenVectorLength);
+                // luxei expects byte offsets, not indices. so we have to shift left the loaded column indices by 2
+                vuint32m1_t vtwo = __riscv_vmv_v_x_u32m1(2, givenVectorLength);
+                v_idx_col = __riscv_vsll_vv_u32m1(v_idx_col, vtwo, givenVectorLength);
+                vfloat32m1_t vx = __riscv_vluxei32_v_f32m1(x, v_idx_col, givenVectorLength);
+                /* Debug: store vx to array and print contents */
+                vfloat32m1_t vprod = __riscv_vfmul_vv_f32m1(va, vx, givenVectorLength);
+#endif
+
 
 		/* Loop through rows again. Should keep in an array the number of elements per row to handle the shifts */
 		long currentNnz = 0;
@@ -397,12 +446,19 @@ void subkernel_csr_vector_riscv_bulk(CSR * restrict csr, ValueType * restrict x,
 				continue;
 			}
 
+#if DOUBLE
 			vfloat64m1_t sum = __riscv_vfmv_v_f_f64m1(0.0, currentNnz);
 			sum = __riscv_vfredusum_vs_f64m1_f64m1(vprod, sum, currentNnz);
 			y[i_sum] = __riscv_vfmv_f_s_f64m1_f64(sum);
-
 			/* Shift positions using slidedown */
 			vprod = __riscv_vslidedown_vx_f64m1(vprod, currentNnz, givenVectorLength);
+#else
+                        vfloat32m1_t sum = __riscv_vfmv_v_f_f32m1(0.0, currentNnz);
+                        sum = __riscv_vfredusum_vs_f32m1_f32m1(vprod, sum, currentNnz);
+                        y[i_sum] = __riscv_vfmv_f_s_f32m1_f32(sum);
+                        /* Shift positions using slidedown */
+                        vprod = __riscv_vslidedown_vx_f32m1(vprod, currentNnz, givenVectorLength);
+#endif
 		}
 
 		/* Update rowStart */
