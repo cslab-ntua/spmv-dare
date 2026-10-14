@@ -4,7 +4,9 @@ script_dir="$(dirname "$(readlink -e "${BASH_SOURCE[0]}")")"
 source "$script_dir"/config.sh
 echo
 
-if ((RAVE_EMULATION)); then
+if ((OCT_QEMU_EMULATION)); then
+    export ARCH='qemu'
+elif ((RAVE_EMULATION)); then
     export ARCH='rave'
 else
     export ARCH="$(uname -m)"
@@ -77,7 +79,9 @@ bench()
             prog_name="$(basename "$prog")"
             export PROGG="${prog_name}"
             
-            if ((RAVE_EMULATION)); then
+            if ((OCT_QEMU_EMULATION)); then
+                "$QEMU_BIN" -L "$QEMU_LD_PREFIX" -cpu "$QEMU_CPU" "$prog" "${prog_args[@]}" 2>'tmp.err'
+            elif ((RAVE_EMULATION)); then
                 trace_rave_1_0 "$prog" "${prog_args[@]}"  2>"tmp.err" # this is located in /apps/riscv/sdv_trace/util
             else
                 "$prog" "${prog_args[@]}"  2>'tmp.err'
@@ -126,7 +130,13 @@ for format_name in "${!progs[@]}"; do
     echo "number of matrices: ${#prog_args[@]}"
 
     # Just print the output labels first.
-    "$prog"
+    if ((OCT_QEMU_EMULATION)); then
+        "$QEMU_BIN" -L "$QEMU_LD_PREFIX" -cpu "$QEMU_CPU" "$prog"
+    elif ((RAVE_EMULATION)); then
+        trace_rave_1_0 "$prog"
+    else
+        "$prog"
+    fi
 
     rep=1
     # rep=5

@@ -67,13 +67,22 @@ num_cores="$(( num_cpus / $(echo "$cpu_info" | awk '/^Thread\(s\) per core:/ {pr
 declare -A conf_vars
 conf_vars=(
 
+    # Whether the OCT QEMU emulator is used.
+    # ['OCT_QEMU_EMULATION']=0
+    ['OCT_QEMU_EMULATION']=1
+
+    # Path to QEMU RISC-V user emulator and cross library prefix
+    ['QEMU_BIN']="${QEMU_BIN:-${script_dir}/../../vec_sdv1/build/qemu-riscv64}"
+    ['QEMU_LD_PREFIX']="${QEMU_LD_PREFIX:-/usr/riscv64-linux-gnu}"
+    ['QEMU_CPU']="${QEMU_CPU:-max,vlen=16384}"
+
     # Whether the RAVE emulator is used.
-    # ['RAVE_EMULATION']=0
-    ['RAVE_EMULATION']=1
+    ['RAVE_EMULATION']=0
+    # ['RAVE_EMULATION']=1
 
     # Whether to enable tracing with SDV.
-    # ['SDV_TRACING']=0
-    ['SDV_TRACING']=1
+    ['SDV_TRACING']=0
+    # ['SDV_TRACING']=1
 
     # ['USE_ARTIFICIAL_MATRICES']=0
     ['USE_ARTIFICIAL_MATRICES']=1
@@ -83,7 +92,8 @@ conf_vars=(
 
     # Cores / Threads to utilize. Use spaces to define a set of different thread numbers to benchmark.
     # ['cores']="$num_cores" # always run with maximum number of cores on Banana Pi
-    ['cores']=1 # always run with 1 core in synth-hca (RAVE emulation)
+    # ['cores']=1 # always run with 1 core in synth-hca (RAVE emulation)
+    ['cores']=16
 
     ################################## 
 

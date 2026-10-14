@@ -16,7 +16,9 @@ source "$script_dir"/../config.sh
 export AMG_PATH=../artificial-matrix-generator
 
 
-if ((RAVE_EMULATION)); then
+if ((OCT_QEMU_EMULATION)); then
+    export ARCH='qemu'
+elif ((RAVE_EMULATION)); then
     export ARCH='rave'
 else
     export ARCH="$(uname -m)"
@@ -26,17 +28,25 @@ fi
 gcc_bin=gcc
 gpp_bin=g++
 
-if [[ ${ARCH} == rave ]] || [[ ${ARCH} == riscv64 ]]; then
+if [[ ${ARCH} == qemu ]]; then
+    CC=riscv64-linux-gnu-gcc
+    CPP=riscv64-linux-gnu-g++
+    CXX="$CPP"
+    AR=riscv64-linux-gnu-ar
+elif [[ ${ARCH} == rave ]] || [[ ${ARCH} == riscv64 ]]; then
     CC=clang
     CPP=clang++
+    AR=ar
 else
     CC="$gcc_bin"
     CPP="$gpp_bin"
     CXX="$CPP"
+    AR=ar
 fi
 export CC
 export CPP
 export CXX
+export AR
 
 CFLAGS=''
 CFLAGS+=" -Wall -Wextra"
@@ -48,7 +58,9 @@ CFLAGS+=" -fopenmp"
 
 CFLAGS+=" -D'_GNU_SOURCE'"
 
-if ((RAVE_EMULATION)); then
+if ((OCT_QEMU_EMULATION)); then
+    CFLAGS+=" -D'OCT_QEMU_EMULATION=1'"
+elif ((RAVE_EMULATION)); then
     CFLAGS+=" -D'RAVE_EMULATION=1'"
 fi
 
@@ -65,7 +77,13 @@ CFLAGS+=" -flto=auto"
 
 CFLAGS+=" -fsigned-char"
 
-if [[ ${ARCH} == riscv64 || ${ARCH} == rave ]]; then
+if [[ ${ARCH} == qemu ]]; then
+    CFLAGS+=" -fno-lto"
+    CFLAGS+=" -march=rv64gcv"
+    CFLAGS+=" -mabi=lp64d"
+    CFLAGS+=" -fno-tree-slp-vectorize"
+    CFLAGS+=" -flax-vector-conversions"
+elif [[ ${ARCH} == riscv64 || ${ARCH} == rave ]]; then
     case "${ARCH}" in
         riscv64)
             module load llvm/EPI-development
@@ -133,7 +151,9 @@ CPPFLAGS_F="${CPPFLAGS} -D'DOUBLE=0' -D'ValueType=float' -D'ValueTypeI=uint32_t'
 LDFLAGS=''
 LDFLAGS+=' -lm'
 
-if [[ ${ARCH} == riscv64 ]]; then
+if [[ ${ARCH} == qemu ]]; then
+    LDFLAGS+=" -L /usr/riscv64-linux-gnu/lib"
+elif [[ ${ARCH} == riscv64 ]]; then
     :
     # LDFLAGS+=' -L /usr/riscv64-linux-gnu'
     # LDFLAGS+=' -Wl,-rpath,/usr/riscv64-linux-gnu/usr/lib'

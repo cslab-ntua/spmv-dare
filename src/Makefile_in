@@ -66,7 +66,7 @@ SELL_C_S_CFLAGS=-I'$(SELL_C_S_ROOT)' -D'EPI_EXT=09' -D'OMP=1' -D'INDEX64=1'
 SELL_C_S_LDFLAGS=-L'$(SELL_C_S_ROOT)' -lsellcs-spmv_i64_omp
 
 spmv_sell_c_s$(SUFFIX).exe: $(OBJ_DIR)/bench$(SUFFIX).o $(OBJ_DIR)/bench_spmv$(SUFFIX).o spmv_kernels/sell_c_s.cpp $(LIB_OBJ)
-	cd $(SELL_C_S_ROOT); make clean; make EPI_EXT=09 INDEX64=1 OMP=1 CC=clang LLVM=clang -j; cd -;
+	cd $(SELL_C_S_ROOT); make clean; make ARCH="$(ARCH)" INDEX64=1 OMP=1 DOUBLE="$(DOUBLE)" CC="$(CC)" LLVM="$(CC)" ARCHIVER="$(AR)" -j; cd -;
 	$(CPP) $(CPPFLAGS) $(SELL_C_S_CFLAGS) $^ -o $@ $(LDFLAGS) $(SELL_C_S_LDFLAGS)
 
 

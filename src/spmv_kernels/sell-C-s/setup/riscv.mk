@@ -37,7 +37,9 @@ else
 endif
 
 
-# ----------------------------------------------------------------------
+ifdef DOUBLE
+    SELLCS_OPTS += -DDOUBLE=$(DOUBLE)
+endif
 
 SELLCS_DEFS     = $(SELLCS_OPTS) $(SELLCS_INCLUDES)
 
@@ -46,44 +48,66 @@ SELLCS_DEFS     = $(SELLCS_OPTS) $(SELLCS_INCLUDES)
 # - Compilers / linkers - Optimization flags
 # ----------------------------------------------------------------------
 
-CC          ?= clang
-AVCC        ?= clang
-LLVM        ?= clang
-LLVM_FLAGS = $(SELLCS_DEFS) -mepi
+ifeq ($(ARCH),qemu)
+    CC          ?= riscv64-linux-gnu-gcc
+    AVCC        ?= $(CC)
+    LLVM        ?= $(CC)
+    ARCHIVER    ?= riscv64-linux-gnu-ar
 
-ifdef DBG
-   CFLAGS     = $(SELLCS_DEFS) -O0 -g -ggdb -DSELLCS_DEBUG $(PARAMS)
-   LLVM_FLAGS += -O0 -g -ggdb -DSELLCS_DEBUG
+    QEMU_FLAGS = $(SELLCS_DEFS) -march=rv64gcv -mabi=lp64d -fno-lto -flax-vector-conversions -fno-tree-slp-vectorize
+    ifdef OMP
+        QEMU_FLAGS += -fopenmp
+    endif
+    ifdef DBG
+        CFLAGS     = $(QEMU_FLAGS) -O0 -g -ggdb -DSELLCS_DEBUG $(PARAMS)
+        LLVM_FLAGS = $(QEMU_FLAGS) -O0 -g -ggdb -DSELLCS_DEBUG $(PARAMS)
+    else
+        CFLAGS     = $(QEMU_FLAGS) -O3 -DNDEBUG $(PARAMS)
+        LLVM_FLAGS = $(QEMU_FLAGS) -O3 -DNDEBUG $(PARAMS)
+    endif
+    AVCC_FLAGS = $(LLVM_FLAGS)
 else
-   CFLAGS     = $(SELLCS_DEFS) -O3 -DNDEBUG  $(PARAMS)
-   LLVM_FLAGS += -O3 -DNDEBUG 
-endif
+    CC          ?= clang
+    AVCC        ?= clang
+    LLVM        ?= clang
+    LLVM_FLAGS = $(SELLCS_DEFS) -mepi -DEPI_INTRINSICS
 
-# For some reason.. when setting it to atrevido-vec it gets stuck during execution (only on synth-hca)
-CFLAGS	+= -mcpu=avispado 
-# CFLAGS  += -mcpu=atrevido-vec
+    ifdef DBG
+       CFLAGS     = $(SELLCS_DEFS) -O0 -g -ggdb -DSELLCS_DEBUG $(PARAMS)
+       LLVM_FLAGS += -O0 -g -ggdb -DSELLCS_DEBUG
+    else
+       CFLAGS     = $(SELLCS_DEFS) -O3 -DNDEBUG  $(PARAMS)
+       LLVM_FLAGS += -O3 -DNDEBUG 
+    endif
 
-LLVM_FLAGS+= -mcpu=avispado
-# LLVM_FLAGS+= -mcpu=atrevido-vec
+    # For some reason.. when setting it to atrevido-vec it gets stuck during execution (only on synth-hca)
+    CFLAGS	+= -mcpu=avispado 
+    # CFLAGS  += -mcpu=atrevido-vec
 
-LLVM_FLAGS+= -fno-lto
-LLVM_FLAGS+= -flax-vector-conversions
-LLVM_FLAGS+= -Wno-vla-cxx-extension
-LLVM_FLAGS+= -fno-slp-vectorize
-LLVM_FLAGS+= -mllvm -combiner-store-merging=0
-LLVM_FLAGS+= -mllvm -vectorizer-use-vp-strided-load-store
-LLVM_FLAGS+= -mllvm -disable-loop-idiom-memcpy
-LLVM_FLAGS+= -mllvm -disable-loop-idiom-memset
-LLVM_FLAGS+= -mllvm -riscv-uleb128-reloc=0
-LLVM_FLAGS+= -Xclang -target-feature -Xclang +does-not-implement-vszext
-LLVM_FLAGS+= -Xclang -target-feature -Xclang +does-not-implement-tu
-LLVM_FLAGS+= -Rpass=loop-vectorize
-LLVM_FLAGS+= -Rpass-analysis=loop-vectorize
-LLVM_FLAGS+= -Rpass-missed=loop-vectorize
+    LLVM_FLAGS+= -mcpu=avispado
+    # LLVM_FLAGS+= -mcpu=atrevido-vec
 
-AVCC_FLAGS = $(LLVM_FLAGS)
-ifdef OMP
-    CFLAGS += -fopenmp
+    LLVM_FLAGS+= -fno-lto
+    LLVM_FLAGS+= -flax-vector-conversions
+    LLVM_FLAGS+= -Wno-vla-cxx-extension
+    LLVM_FLAGS+= -fno-slp-vectorize
+    LLVM_FLAGS+= -mllvm -combiner-store-merging=0
+    LLVM_FLAGS+= -mllvm -vectorizer-use-vp-strided-load-store
+    LLVM_FLAGS+= -mllvm -disable-loop-idiom-memcpy
+    LLVM_FLAGS+= -mllvm -disable-loop-idiom-memset
+    LLVM_FLAGS+= -mllvm -riscv-uleb128-reloc=0
+    LLVM_FLAGS+= -Xclang -target-feature -Xclang +does-not-implement-vszext
+    LLVM_FLAGS+= -Xclang -target-feature -Xclang +does-not-implement-tu
+    LLVM_FLAGS+= -Rpass=loop-vectorize
+    LLVM_FLAGS+= -Rpass-analysis=loop-vectorize
+    LLVM_FLAGS+= -Rpass-missed=loop-vectorize
+
+    AVCC_FLAGS = $(LLVM_FLAGS)
+    ifdef OMP
+        CFLAGS += -fopenmp
+    endif
+
+    ARCHIVER     ?= ar
 endif
 
 MASM        = 
@@ -91,7 +115,7 @@ MASM        =
 LINKER       = $(CC)
 LINKFLAGS    = $(CFLAGS) -static
 
-ARCHIVER     = ar
+ARCHIVER     ?= riscv64-linux-gnu-ar
 ARFLAGS      = r
 RANLIB       = echo
 

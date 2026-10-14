@@ -1,7 +1,8 @@
 # arch ?= UNKNOWN
 arch ?= riscv
 include setup/$(arch).mk
-CC=clang
+CC ?= clang
+LLVM ?= $(CC)
 
 LLVMSRC = sellcs_mv_kernels_epi.c   
 LLVMOBJ = $(patsubst %.c,%.o,$(LLVMSRC)) 
@@ -19,14 +20,14 @@ HEADER_FILES = sellcs-spmv.h
 
 DEST =.
 
-EPI_EXT = 09
+EPI_EXT ?= 09
 
 .PHONY: clean all install
 
 all:
 	rm -f libsellcs-spmv*.a
 
-	make arch=$(arch) EPI_EXT=$(EPI_EXT) CC="$(CC)" LLVM="$(LLVM)" CFLAGS="$(CFLAGS)" $(LIBNAME)
+	$(MAKE) arch=$(arch) ARCH="$(ARCH)" DOUBLE="$(DOUBLE)" INDEX64="$(INDEX64)" OMP="$(OMP)" EPI_EXT="$(EPI_EXT)" CC="$(CC)" LLVM="$(LLVM)" ARCHIVER="$(ARCHIVER)" CFLAGS="$(CFLAGS)" $(LIBNAME)
 	
 
 libsellcs-spmv_formatonly.a: $(BASEOBJ)

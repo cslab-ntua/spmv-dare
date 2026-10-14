@@ -26,7 +26,7 @@ extern "C"{
 		#define VTF   f32
 		#define VEC_SCALE_SHIFT  2
 		// #define VEC_LEN  1
-		#if defined(RAVE_EMULATION) && RAVE_EMULATION == 1
+		#if (defined(OCT_QEMU_EMULATION) && OCT_QEMU_EMULATION == 1) || (defined(RAVE_EMULATION) && RAVE_EMULATION == 1)
 			#define VEC_LEN  512
 		#else
 			#define VEC_LEN  vec_len_default_f32
@@ -40,7 +40,7 @@ extern "C"{
 		#define VTI   i64
 		#define VTF   f64
 		#define VEC_SCALE_SHIFT  3
-		#if defined(RAVE_EMULATION) && RAVE_EMULATION == 1
+		#if (defined(OCT_QEMU_EMULATION) && OCT_QEMU_EMULATION == 1) || (defined(RAVE_EMULATION) && RAVE_EMULATION == 1)
 			#define VEC_LEN  256
 		#else
 			#define VEC_LEN  vec_len_default_f64

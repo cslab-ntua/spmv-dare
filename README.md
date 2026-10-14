@@ -122,3 +122,21 @@ if (ii_e * VEC_LEN > i_e){
 * In [`csr_riscv.cpp`](./src/spmv_kernels/csr_riscv.cpp) changed `v_idx_row` to `v_idx_col`.
 
 * In [`div_kernels_rf.h`](./src/spmv_kernels/DIV/div_kernels_rf.h) put Line 405 in comments. We need to disable this quicksort call, due to wide Vector Length.
+
+* Several changes had to be made in order to test this on a custom QEMU installation:
+
+  * In [`config.sh`](./config.sh), added variables for QEMU RISC-V emulation: `OCT_QEMU_EMULATION` (toggle), `QEMU_BIN` (emulator binary path), `QEMU_LD_PREFIX` (`/usr/riscv64-linux-gnu`), and `QEMU_CPU` (CPU model and vector length, e.g. `max,vlen=1024` or `max,vlen=16384`).
+  * In [`run.sh`](./run.sh), added `ARCH='qemu'` mode and executed binaries through QEMU instead of native / RAVE:
+    ```bash
+    "$QEMU_BIN" -L "$QEMU_LD_PREFIX" -cpu "$QEMU_CPU" "$prog" "${prog_args[@]}"
+    ```
+  * In [`make.sh`](./src/make.sh), added the `qemu` target architecture:
+    * Selects GNU cross-compilers (`riscv64-linux-gnu-gcc`, `riscv64-linux-gnu-g++`, `riscv64-linux-gnu-ar`).
+    * Sets `-D'OCT_QEMU_EMULATION=1'`.
+    * Replaces Clang/EPI-specific flags (`-mcpu=avispado`, `-mepi`, etc.) with GCC RVV 1.0 flags: `-march=rv64gcv -mabi=lp64d -fno-lto -flax-vector-conversions -fno-tree-slp-vectorize`.
+    * Adds `-L /usr/riscv64-linux-gnu/lib` to `LDFLAGS`.
+  * In [`csr_vec.cpp`](./src/spmv_kernels/csr_vec.cpp), [`sell.cpp`](./src/spmv_kernels/sell.cpp), [`sell_sorted.cpp`](./src/spmv_kernels/sell_sorted.cpp), and [`div_gather_coords.h`](./src/spmv_kernels/DIV/div_gather_coords.h), grouped `OCT_QEMU_EMULATION` with `RAVE_EMULATION` to select wide vector lengths (`VEC_LEN=256` for double, `512` for float).
+  * In the `sell-C-s` build system:
+    * In [`Makefile_in`](./src/Makefile_in), forwarded `ARCH`, `DOUBLE`, `CC`, and `AR` to the sub-make instead of hardcoding `CC=clang LLVM=clang`.
+    * In [`sell-C-s/Makefile`](./src/spmv_kernels/sell-C-s/Makefile), made compiler and archiver overridable (`CC ?= clang`, `LLVM ?= $(CC)`).
+    * In [`sell-C-s/setup/riscv.mk`](./src/spmv_kernels/sell-C-s/setup/riscv.mk), added an `ifeq ($(ARCH),qemu)` configuration targeting `riscv64-linux-gnu-gcc` and standard RVV flags without EPI/Clang-only attributes.
